@@ -1,0 +1,61 @@
+name: Build and Release Chrome Extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Create extension ZIP
+      run: |
+        # 불필요한 파일들 제외하고 ZIP 생성
+        zip -r chzzk-streamer-blocker.zip . \
+          -x "*.git*" \
+          -x "*.github*" \
+          -x "*.md" \
+          -x "*.py" \
+          -x "*create_icons*" \
+          -x "*.DS_Store*" \
+          -x "*.vscode*"
+    
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        body: |
+          ## 🚫 치지직 스트리머 숨기기 Chrome Extension
+          
+          ### ✨ 새로운 기능
+          - Chrome 웹스토어용 릴리스 빌드
+          
+          ### 📦 설치 방법
+          1. `chzzk-streamer-blocker.zip` 다운로드
+          2. 압축 해제
+          3. Chrome 확장 프로그램 개발자 모드에서 로드
+          
+          ### 🔧 지원 사이트
+          - https://chzzk.naver.com
+        draft: false
+        prerelease: false
+    
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./chzzk-streamer-blocker.zip
+        asset_name: chzzk-streamer-blocker.zip
+        asset_content_type: application/zip
