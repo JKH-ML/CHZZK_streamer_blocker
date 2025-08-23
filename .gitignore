@@ -1,0 +1,32 @@
+# Chrome Extension Development
+*.crx
+*.pem
+key.pem
+
+# Development files
+create_icons.py
+create_icons.html
+*.pyc
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node modules (if using build tools)
+node_modules/
+npm-debug.log*
+
+# Temporary files
+*.tmp
+*.temp

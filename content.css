@@ -1,0 +1,23 @@
+.chzzk-blocker-hidden {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+  position: absolute !important;
+  left: -9999px !important;
+  top: -9999px !important;
+}
+
+/* For debugging - highlight processed cards */
+.chzzk-blocker-processed {
+  /* border: 1px solid rgba(0, 229, 204, 0.3) !important; */
+}

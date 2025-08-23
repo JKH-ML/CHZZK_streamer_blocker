@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:help.naver.com)",
+      "Bash(python:*)",
+      "WebFetch(domain:chzzk.naver.com)",
+      "Read(/C:\\study\\SOOP_streamer_blocker/**)",
+      "Read(/C:\\study\\SOOP_streamer_blocker/**)",
+      "Read(/C:\\study\\SOOP_streamer_blocker/**)",
+      "Read(/C:\\study\\SOOP_streamer_blocker/**)",
+      "Read(/C:\\study\\SOOP_streamer_blocker/**)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
