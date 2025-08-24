@@ -20,6 +20,7 @@ class ChzzkStreamerBlocker {
     this.log('Initializing CHZZK Blocker...');
     await this.loadSettings();
     this.setupMessageListener();
+    this.setupContextMenu();
     this.startBlocking();
   }
 
@@ -83,6 +84,8 @@ class ChzzkStreamerBlocker {
         this.log('Periodic check - reapplying blocking...');
         this.applyBlocking();
       }
+      // Always add context menu to new cards
+      this.addContextMenuToCards();
     }, 2000);
 
     // Also check on scroll and other events
@@ -129,6 +132,8 @@ class ChzzkStreamerBlocker {
               if (isStreamCard) {
                 this.log('New stream card detected, reapplying blocking...');
                 shouldReapply = true;
+                // Add context menu to new cards
+                setTimeout(() => this.addContextMenuToCards(), 100);
                 break;
               }
             }
@@ -262,30 +267,51 @@ class ChzzkStreamerBlocker {
       tags: []
     };
 
-    // Safe approach - find elements by checking class names directly
+    // First try to find the specific name_text class for more accurate extraction
+    const nameTextElement = card.querySelector('[class*="name_text"]');
+    if (nameTextElement) {
+      const nameText = nameTextElement.textContent?.trim() || '';
+      if (nameText && nameText.length > 0 && nameText.length < 50) {
+        info.name = nameText;
+        this.log(`Found streamer name from name_text: "${info.name}"`);
+      }
+    }
+
+    // If no name found, use the fallback method but with better filtering
+    if (!info.name) {
+      const allElements = card.querySelectorAll('*');
+      
+      for (let element of allElements) {
+        const classList = element.classList;
+        const textContent = element.textContent?.trim() || '';
+        
+        if (!textContent) continue;
+        
+        // Look for streamer name in channel-related classes
+        if (this.hasClassContaining(classList, 'channel') || 
+            this.hasClassContaining(classList, 'name') ||
+            this.hasClassContaining(classList, 'ellipsis')) {
+          
+          const cleanName = textContent
+            .replace(/채널로 이동|channel|live|LIVE|라이브|인증 마크|스트리머|채널|방송/gi, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+            
+          if (cleanName && cleanName.length > 0 && cleanName.length < 50 && !info.name) {
+            info.name = cleanName;
+            this.log(`Found streamer name: "${info.name}"`);
+          }
+        }
+      }
+    }
+
+    // Extract title and tags from all elements
     const allElements = card.querySelectorAll('*');
-    
     for (let element of allElements) {
       const classList = element.classList;
       const textContent = element.textContent?.trim() || '';
       
       if (!textContent) continue;
-      
-      // Look for streamer name in channel-related classes
-      if (this.hasClassContaining(classList, 'channel') || 
-          this.hasClassContaining(classList, 'name') ||
-          this.hasClassContaining(classList, 'ellipsis')) {
-        
-        const cleanName = textContent
-          .replace(/채널로 이동|channel|live|LIVE|라이브/gi, '')
-          .replace(/\s+/g, ' ')
-          .trim();
-          
-        if (cleanName && cleanName.length > 0 && cleanName.length < 50 && !info.name) {
-          info.name = cleanName;
-          this.log(`Found streamer name: "${info.name}"`);
-        }
-      }
       
       // Look for stream title
       if (this.hasClassContaining(classList, 'title')) {
@@ -411,6 +437,203 @@ class ChzzkStreamerBlocker {
       card.style.removeProperty('display');
       card.classList.remove('chzzk-blocker-hidden');
     });
+  }
+
+  setupContextMenu() {
+    this.log('Setting up context menu...');
+    
+    // Create context menu element
+    this.contextMenu = document.createElement('div');
+    this.contextMenu.id = 'chzzk-blocker-context-menu';
+    this.contextMenu.innerHTML = `
+      <div class="chzzk-context-menu-item" id="chzzk-block-streamer">
+        🚫 이 스트리머 숨기기
+      </div>
+    `;
+    this.contextMenu.style.cssText = `
+      position: fixed;
+      background: #2a2a2a;
+      border: 1px solid #555;
+      border-radius: 6px;
+      padding: 8px 0;
+      z-index: 10000;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      color: white;
+      min-width: 180px;
+      display: none;
+    `;
+    
+    // Style for menu items
+    const style = document.createElement('style');
+    style.textContent = `
+      .chzzk-context-menu-item {
+        padding: 8px 16px;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+      }
+      .chzzk-context-menu-item:hover {
+        background-color: #404040;
+      }
+      .chzzk-context-menu-item:active {
+        background-color: #555;
+      }
+    `;
+    document.head.appendChild(style);
+    document.body.appendChild(this.contextMenu);
+
+    // Store current target for context menu
+    this.currentContextTarget = null;
+
+    // Add context menu to existing stream cards
+    this.addContextMenuToCards();
+
+    // Hide context menu on click elsewhere
+    document.addEventListener('click', (e) => {
+      if (!this.contextMenu.contains(e.target)) {
+        this.hideContextMenu();
+      }
+    });
+
+    // Add click handler for context menu items
+    this.contextMenu.addEventListener('click', (e) => {
+      if (e.target.id === 'chzzk-block-streamer') {
+        this.blockStreamerFromContext();
+      }
+      this.hideContextMenu();
+    });
+
+    this.log('Context menu setup complete');
+  }
+
+  addContextMenuToCards() {
+    const streamCards = this.findStreamCards();
+    this.log(`Adding context menu to ${streamCards.length} stream cards`);
+    
+    streamCards.forEach(card => {
+      if (!card.hasAttribute('data-chzzk-context-menu')) {
+        card.setAttribute('data-chzzk-context-menu', 'true');
+        
+        card.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          this.showContextMenu(e, card);
+          return false;
+        }, true);
+        
+        this.log('Added context menu to stream card');
+      }
+    });
+  }
+
+  showContextMenu(event, streamCard) {
+    this.currentContextTarget = streamCard;
+    
+    this.contextMenu.style.display = 'block';
+    this.contextMenu.style.left = event.pageX + 'px';
+    this.contextMenu.style.top = event.pageY + 'px';
+    
+    // Adjust position if menu would go off-screen
+    const rect = this.contextMenu.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    if (rect.right > viewportWidth) {
+      this.contextMenu.style.left = (event.pageX - rect.width) + 'px';
+    }
+    
+    if (rect.bottom > viewportHeight) {
+      this.contextMenu.style.top = (event.pageY - rect.height) + 'px';
+    }
+
+    this.log('Context menu shown for stream card');
+  }
+
+  hideContextMenu() {
+    if (this.contextMenu) {
+      this.contextMenu.style.display = 'none';
+    }
+    this.currentContextTarget = null;
+  }
+
+  async blockStreamerFromContext() {
+    if (!this.currentContextTarget) {
+      this.log('No target stream card for blocking');
+      return;
+    }
+
+    const streamerInfo = this.extractStreamerInfo(this.currentContextTarget);
+    
+    if (!streamerInfo.name) {
+      this.log('Could not extract streamer name from card');
+      return;
+    }
+
+    this.log(`Adding "${streamerInfo.name}" to blocked streamers`);
+    
+    // Add to blocked streamers list
+    if (!this.blockedStreamers.includes(streamerInfo.name)) {
+      this.blockedStreamers.push(streamerInfo.name);
+      
+      // Save to storage
+      try {
+        await chrome.storage.sync.set({
+          blockedStreamers: this.blockedStreamers
+        });
+        this.log(`Successfully blocked streamer: ${streamerInfo.name}`);
+        
+        // Reapply blocking to hide the newly blocked streamer
+        this.applyBlocking();
+        
+        // Show notification (optional)
+        this.showNotification(`"${streamerInfo.name}" 스트리머가 숨겨졌습니다.`);
+        
+      } catch (error) {
+        console.error('Failed to save blocked streamer:', error);
+      }
+    } else {
+      this.log(`Streamer "${streamerInfo.name}" is already blocked`);
+    }
+  }
+
+  showNotification(message) {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.textContent = message;
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #4a4a4a;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 6px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      z-index: 10001;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Fade in
+    setTimeout(() => {
+      notification.style.opacity = '1';
+    }, 10);
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+      notification.style.opacity = '0';
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.parentNode.removeChild(notification);
+        }
+      }, 300);
+    }, 3000);
   }
 }
 
