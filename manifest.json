@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "치지직 스트리머 숨기기",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "치지직에서 원하지 않는 스트리머나 태그를 숨기는 확장 프로그램",
   
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "contextMenus"
   ],
   
   "content_scripts": [

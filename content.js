@@ -6,7 +6,7 @@ class ChzzkStreamerBlocker {
     this.blockedStreamers = [];
     this.blockedTags = [];
     this.observer = null;
-    this.debugMode = true; // Enable debug logging
+    this.debugMode = false; // Enable debug logging
     this.init();
   }
 
@@ -53,7 +53,7 @@ class ChzzkStreamerBlocker {
   }
 
   setupMessageListener() {
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
       if (message.action === 'updateBlockSettings') {
         this.masterEnabled = message.settings.masterEnabled;
         this.streamerEnabled = message.settings.streamerEnabled;
@@ -66,6 +66,9 @@ class ChzzkStreamerBlocker {
         if (message.blockedStreamers) this.blockedStreamers = message.blockedStreamers;
         if (message.blockedTags) this.blockedTags = message.blockedTags;
         this.applyBlocking();
+      } else if (message.action === 'handleContextMenu') {
+        // 컨텍스트 메뉴에서 호출된 경우 처리
+        await this.handleContextMenuAction();
       }
     });
   }
@@ -440,71 +443,15 @@ class ChzzkStreamerBlocker {
   }
 
   setupContextMenu() {
-    this.log('Setting up context menu...');
+    this.log('Setting up native context menu...');
     
-    // Create context menu element
-    this.contextMenu = document.createElement('div');
-    this.contextMenu.id = 'chzzk-blocker-context-menu';
-    this.contextMenu.innerHTML = `
-      <div class="chzzk-context-menu-item" id="chzzk-block-streamer">
-        🚫 이 스트리머 숨기기
-      </div>
-    `;
-    this.contextMenu.style.cssText = `
-      position: fixed;
-      background: #2a2a2a;
-      border: 1px solid #555;
-      border-radius: 6px;
-      padding: 8px 0;
-      z-index: 10000;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 14px;
-      color: white;
-      min-width: 180px;
-      display: none;
-    `;
-    
-    // Style for menu items
-    const style = document.createElement('style');
-    style.textContent = `
-      .chzzk-context-menu-item {
-        padding: 8px 16px;
-        cursor: pointer;
-        transition: background-color 0.15s ease;
-      }
-      .chzzk-context-menu-item:hover {
-        background-color: #404040;
-      }
-      .chzzk-context-menu-item:active {
-        background-color: #555;
-      }
-    `;
-    document.head.appendChild(style);
-    document.body.appendChild(this.contextMenu);
-
     // Store current target for context menu
-    this.currentContextTarget = null;
+    this.lastRightClickedCard = null;
 
     // Add context menu to existing stream cards
     this.addContextMenuToCards();
 
-    // Hide context menu on click elsewhere
-    document.addEventListener('click', (e) => {
-      if (!this.contextMenu.contains(e.target)) {
-        this.hideContextMenu();
-      }
-    });
-
-    // Add click handler for context menu items
-    this.contextMenu.addEventListener('click', (e) => {
-      if (e.target.id === 'chzzk-block-streamer') {
-        this.blockStreamerFromContext();
-      }
-      this.hideContextMenu();
-    });
-
-    this.log('Context menu setup complete');
+    this.log('Native context menu setup complete');
   }
 
   addContextMenuToCards() {
@@ -516,125 +463,134 @@ class ChzzkStreamerBlocker {
         card.setAttribute('data-chzzk-context-menu', 'true');
         
         card.addEventListener('contextmenu', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          e.stopImmediatePropagation();
-          this.showContextMenu(e, card);
-          return false;
-        }, true);
+          // 우클릭된 카드 저장 (네이티브 컨텍스트 메뉴에서 사용)
+          this.lastRightClickedCard = card;
+          
+          // 스트리머 이름 찾기
+          const streamerInfo = this.extractStreamerInfo(card);
+          
+          if (streamerInfo.name) {
+            // 현재 차단 상태에 따라 컨텍스트 메뉴 텍스트 업데이트
+            const isBlocked = this.blockedStreamers.includes(streamerInfo.name);
+            const menuTitle = isBlocked ? "스트리머 숨기기 해제" : "스트리머 숨기기";
+            
+            // 백그라운드 스크립트에 메뉴 업데이트 요청 (오류 무시)
+            chrome.runtime.sendMessage({
+              action: "updateContextMenu",
+              title: menuTitle
+            }).catch(error => {
+              // 초기 로드 시 connection 오류 무시
+              console.debug('Context menu update failed:', error);
+            });
+          }
+        });
         
         this.log('Added context menu to stream card');
       }
     });
   }
 
-  showContextMenu(event, streamCard) {
-    this.currentContextTarget = streamCard;
-    
-    this.contextMenu.style.display = 'block';
-    this.contextMenu.style.left = event.pageX + 'px';
-    this.contextMenu.style.top = event.pageY + 'px';
-    
-    // Adjust position if menu would go off-screen
-    const rect = this.contextMenu.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    
-    if (rect.right > viewportWidth) {
-      this.contextMenu.style.left = (event.pageX - rect.width) + 'px';
-    }
-    
-    if (rect.bottom > viewportHeight) {
-      this.contextMenu.style.top = (event.pageY - rect.height) + 'px';
-    }
-
-    this.log('Context menu shown for stream card');
-  }
-
-  hideContextMenu() {
-    if (this.contextMenu) {
-      this.contextMenu.style.display = 'none';
-    }
-    this.currentContextTarget = null;
-  }
-
-  async blockStreamerFromContext() {
-    if (!this.currentContextTarget) {
-      this.log('No target stream card for blocking');
+  async handleContextMenuAction() {
+    this.log('handleContextMenuAction called');
+    if (!this.lastRightClickedCard) {
+      this.log('No lastRightClickedCard found');
       return;
     }
 
-    const streamerInfo = this.extractStreamerInfo(this.currentContextTarget);
+    const streamerInfo = this.extractStreamerInfo(this.lastRightClickedCard);
+    this.log('Extracted streamer info:', streamerInfo);
     
     if (!streamerInfo.name) {
-      this.log('Could not extract streamer name from card');
+      this.log('No streamer name found');
       return;
     }
 
-    this.log(`Adding "${streamerInfo.name}" to blocked streamers`);
-    
-    // Add to blocked streamers list
-    if (!this.blockedStreamers.includes(streamerInfo.name)) {
-      this.blockedStreamers.push(streamerInfo.name);
+    try {
+      const isBlocked = this.blockedStreamers.includes(streamerInfo.name);
+      this.log('Streamer blocked status:', isBlocked);
       
-      // Save to storage
-      try {
-        await chrome.storage.sync.set({
-          blockedStreamers: this.blockedStreamers
-        });
-        this.log(`Successfully blocked streamer: ${streamerInfo.name}`);
-        
-        // Reapply blocking to hide the newly blocked streamer
-        this.applyBlocking();
-        
-        // Show notification (optional)
-        this.showNotification(`"${streamerInfo.name}" 스트리머가 숨겨졌습니다.`);
-        
-      } catch (error) {
-        console.error('Failed to save blocked streamer:', error);
+      if (isBlocked) {
+        // 스트리머 차단 해제
+        const index = this.blockedStreamers.indexOf(streamerInfo.name);
+        if (index > -1) {
+          this.blockedStreamers.splice(index, 1);
+        }
+        this.log('Unblocking streamer:', streamerInfo.name);
+      } else {
+        // 스트리머 차단 추가
+        if (!this.blockedStreamers.includes(streamerInfo.name)) {
+          this.blockedStreamers.push(streamerInfo.name);
+        }
+        this.log('Blocking streamer:', streamerInfo.name);
       }
-    } else {
-      this.log(`Streamer "${streamerInfo.name}" is already blocked`);
+
+      // 스토리지에 저장
+      await chrome.storage.sync.set({ 
+        blockedStreamers: this.blockedStreamers 
+      });
+
+      // 차단 리스트 업데이트 및 재처리
+      this.applyBlocking();
+
+    } catch (error) {
+      console.error('스트리머 차단 설정 오류:', error);
     }
+    
+    // 초기화
+    this.lastRightClickedCard = null;
   }
 
-  showNotification(message) {
-    // Create notification element
-    const notification = document.createElement('div');
-    notification.textContent = message;
-    notification.style.cssText = `
+  // 토스트 메시지 표시
+  showToast(message) {
+    this.log('Showing toast:', message);
+    // 기존 토스트가 있으면 제거
+    const existingToast = document.getElementById('chzzk-blocker-toast');
+    if (existingToast) {
+      existingToast.remove();
+    }
+
+    const toast = document.createElement('div');
+    toast.id = 'chzzk-blocker-toast';
+    toast.style.cssText = `
       position: fixed;
       top: 20px;
       right: 20px;
-      background: #4a4a4a;
+      background: #333;
       color: white;
       padding: 12px 20px;
-      border-radius: 6px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 14px;
-      z-index: 10001;
+      border-radius: 8px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      z-index: 10000;
+      font-size: 14px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       opacity: 0;
-      transition: opacity 0.3s ease;
+      transform: translateX(100px);
+      transition: all 0.3s ease;
+      max-width: 300px;
+      word-wrap: break-word;
     `;
+    toast.textContent = message;
     
-    document.body.appendChild(notification);
+    document.body.appendChild(toast);
     
-    // Fade in
+    // 애니메이션으로 표시
     setTimeout(() => {
-      notification.style.opacity = '1';
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateX(0)';
     }, 10);
     
-    // Remove after 3 seconds
+    // 3초 후 자동 제거
     setTimeout(() => {
-      notification.style.opacity = '0';
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(100px)';
       setTimeout(() => {
-        if (notification.parentNode) {
-          notification.parentNode.removeChild(notification);
+        if (toast.parentNode) {
+          toast.remove();
         }
       }, 300);
     }, 3000);
   }
+
 }
 
 if (document.readyState === 'loading') {
